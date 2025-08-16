@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Simple FPS Shooter - Mobile Ready</title>
+  <style>
+    :root {
+      --bg: #0b0b10;
+      --panel: rgba(20,20,28,0.75);
+      --accent: #66e0ff;
+      --text: #e5e5e5;
+      --muted: #a6a6a6;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; background: #0b0b10; color: var(--text); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { overflow: hidden; }
+    #hud {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      pointer-events: none;
+      display: flex; align-items: flex-start; justify-content: center;
+    }
+    .panel {
+      pointer-events: auto;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-top: 14px;
+      min-width: 240px;
+      max-width: 92vw;
+      text-align: left;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    }
+    .title { font-weight: 600; font-size: 14px; color: #e9faff; }
+    .row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+    .score { font-family: ui-monospace,SFMono-Regular,Monaco,Consolas; font-weight: 700; color: #a9ffcf; letter-spacing: .5px; }
+    #playBtn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 12px 16px; border-radius: 8px; border: none;
+      background: linear-gradient(135deg, #1e6bff, #4b9aff);
+      color: white; font-weight: 600; cursor: pointer;
+      box-shadow: 0 6px 14px rgba(0,0,0,.25);
+      transition: transform .1s ease;
+    }
+    #playBtn:active { transform: scale(0.98); }
+    #crosshair {
+      position: fixed; left: 50%; top: 50%; width: 2px; height: 2px;
+      background: transparent;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    #exitBtn {
+      position: fixed; top: 12px; right: 12px;
+      background: rgba(40,40,50,0.9);
+      color: #fff; border: 1px solid rgba(255,255,255,0.15);
+      padding: 8px 12px; border-radius: 6px; cursor: pointer;
+      font-size: 12px; display: none; z-index: 2;
+    }
+    /* Mobile controls */
+    .joystick {
+      position: fixed;
+      width: 140px; height: 140px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 50%;
+      touch-action: none;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 5;
+    }
+    #joystickLeft { left: 14px; bottom: 14px; }
+    #joystickRight { right: 14px; bottom: 14px; }
+    .joystick .knob {
+      width: 60px; height: 60px; background: rgba(255,255,255,0.9);
+      border-radius: 50%; transform: translate3d(0,0,0);
+    }
+    #fireBtn {
+      position: fixed; right: 14px; bottom: 84px;
+      width: 72px; height: 72px; border-radius: 50%;
+      background: linear-gradient(135deg, #f44336, #e91e63);
+      border: none; color: white; font-weight: 700; font-size: 14px;
+      display: none; z-index: 6;
+      box-shadow: 0 6px 14px rgba(0,0,0,.4);
+    }
+    @media (min-width: 900px){
+      #fireBtn { display: none; }
+      #joystickLeft, #joystickRight { display: none; visibility: hidden; }
+    }
+  </style>
+</head>
+<body>
+  <div id="hud" aria-label="HUD">
+    <div class="panel" id="panel">
+      <div class="title" style="font-size:13px; text-transform: uppercase; letter-spacing: .12em; color:#a6d9ff;">
+        Simple FPS Shooter (Three.js)
+      </div>
+      <div class="row" aria-label="Score row">
+        <span>Score</span>
+        <span class="score" id="score">0</span>
+      </div>
+      <div class="row" aria-label="Instructions">
+        <span style="font-size:12px; color:var(--muted)">Tap Play to start. Use on-screen joysticks on mobile. Look around by dragging the right joystick. Fire with the fire button.</span>
+      </div>
+      <div class="row" style="justify-content:flex-start; margin-top:10px;">
+        <button id="playBtn" title="Click to start (no pain, no gain)">Play</button>
+      </div>
+    </div>
+  </div>
+
+  <button id="exitBtn" aria-label="Exit pointer lock">Exit pointer lock</button>
+
+  <div id="crosshair" aria-hidden="true"></div>
+
+  <!-- Mobile Joysticks -->
+  <div id="joystickLeft" class="joystick" aria-label="Move joystick">
+    <div class="knob" id="knobLeft"></div>
+  </div>
+  <div id="joystickRight" class="joystick" aria-label="Look joystick">
+    <div class="knob" id="knobRight"></div>
+  </div>
+  <button id="fireBtn" aria-label="Fire button">Fire</button>
+
+  <!-- Three.js (r127) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.127.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.127.0/examples/js/controls/OrbitControls.js"></script>
+
+  <script>
+    // Simple FPS shooter using Three.js r127 with mobile controls
+    let scene, camera, renderer;
+    let player, yawObject, cameraHolder;
+    let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+    let velocity = new THREE.Vector3();
+    let direction = new THREE.Vector3();
+    let prevTime = performance.now();
+    let enemies;
+    let score = 0;
+    let isMobile = false;
+    let isDesktop = false;
+    let isRunning = false;
+    let raycaster;
+    let locked = false;
+
+    // UI
+    const scoreEl = document.getElementById('score');
+    const panel = document.getElementById('panel');
+    const playBtn = document.getElementById('playBtn');
+    const exitBtn = document.getElementById('exitBtn');
+    const fireBtn = document.getElementById('fireBtn');
+
+    // Mobile controls
+    const joystickLeft = document.getElementById('joystickLeft');
+    const knobLeft = document.getElementById('knobLeft');
+    const joystickRight = document.getElementById('joystickRight');
+    const knobRight = document.getElementById('knobRight');
+    let leftTouchActive = false;
+    let rightTouchActive = false;
+    let leftStart = { x: 0, y: 0 };
+    let rightStart = { x: 0, y: 0 };
+    let leftVec = { x: 0, y: 0 };
+    let rightVec = { x: 0, y: 0 };
+
+    // Init
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    init();
+    animate();
+
+    function init() {
+      isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+      isDesktop = !isMobile;
+
+      scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x0b0b10, 0.05);
+
+      yawObject = new THREE.Group();
+      scene.add(yawObject);
+
+      cameraHolder = new THREE.Object3D();
+      cameraHolder.position.set(0, 1.6, 0);
+      yawObject.add(cameraHolder);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      cameraHolder = cameraHolder;
+      cameraHolder.add(camera);
+
+      const grid = new THREE.GridHelper(100, 100, 0x444444, 0x444444);
+      grid.position.y = 0;
+      scene.add(grid);
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+      scene.add(ambient);
+      const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+      dir.position.set(5, 10, 7);
+      scene.add(dir);
+
+      enemies = new THREE.Group();
+      const crateGeom = new THREE.BoxGeometry(1, 1, 1);
+      const crateMat = new THREE.MeshStandardMaterial({ color: 0xff4444 });
+      for (let i = 0; i < 8; i++) {
+        const m = new THREE.Mesh(crateGeom, crateMat);
+        m.position.set((Math.random() - 0.5) * 40, 0.5, (Math.random() - 0.5) * 40);
+        m.userData.isEnemy = true;
+        m.scale.set(THREE.MathUtils.randFloat(0.7, 1.4), THREE.MathUtils.randFloat(0.7, 1.4), THREE.MathUtils.randFloat(0.7, 1.4));
+        enemies.add(m);
+      }
+      scene.add(enemies);
+
+      raycaster = new THREE.Raycaster();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setClearColor(0x0b0b10);
+      container.appendChild(renderer.domElement);
+
+      const canvas = renderer.domElement;
+      canvas.style.cursor = 'none';
+
+      // Desktop/keyboard controls
+      if (isDesktop) {
+        document.addEventListener('pointerlockchange', onPointerLockChange, false);
+        document.addEventListener('mozpointerlockchange', onPointerLockChange, false);
+        document.addEventListener('webkitpointerlockchange', onPointerLockChange, false);
+        document.addEventListener('mousemove', onMouseMove, false);
+
+        const onKeyDown = (e) => {
+          switch (e.code) {
+            case 'KeyW': moveForward = true; break;
+            case 'KeyS': moveBackward = true; break;
+            case 'KeyA': moveLeft = true; break;
+            case 'KeyD': moveRight = true; break;
+          }
+        };
+        const onKeyUp = (e) => {
+          switch (e.code) {
+            case 'KeyW': moveForward = false; break;
+            case 'KeyS': moveBackward = false; break;
+            case 'KeyA': moveLeft = false; break;
+            case 'KeyD': moveRight = false; break;
+          }
+        };
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+
+        window.addEventListener('mousedown', () => {
+          if (document.pointerLockElement !== renderer.domElement) {
+            lockPointer();
+          } else {
+            shoot();
+          }
+        });
+
+        playBtn.addEventListener('click', () => {
+          lockPointer();
+        });
+
+        function lockPointer() {
+          if (renderer.domElement.requestPointerLock) {
+            renderer.domElement.requestPointerLock();
+          }
+        }
+
+        function onPointerLockChange() {
+          const locked = (document.pointerLockElement === renderer.domElement);
+          locked ? exitBtn.style.display = 'block' : exitBtn.style.display = 'none';
+        }
+
+        function onMouseMove(event) {
+          if (document.pointerLockElement !== renderer.domElement) return;
+          const movementX = event.movementX || 0;
+          const movementY = event.movementY || 0;
+          yawObject.rotation.y -= movementX * 0.0025;
+          camera.rotation.x -= movementY * 0.0025;
+          camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+        }
+      }
+
+      // Mobile controls
+      if (isMobile) {
+        fireBtn.style.display = 'block';
+        joystickLeft.style.display = 'block';
+        joystickRight.style.display = 'block';
+        // Position knob
+        knobLeft.style.transform = 'translate3d(0,0,0)';
+        knobRight.style.transform = 'translate3d(0,0,0)';
+
+        // Touch events for left joystick (movement)
+        joystickLeft.addEventListener('touchstart', (e) => {
+          leftTouchActive = true;
+          const t = e.touches[0];
+          leftStart.x = t.clientX;
+          leftStart.y = t.clientY;
+        });
+        joystickLeft.addEventListener('touchmove', (e) => {
+          if (!leftTouchActive) return;
+          const t = e.touches[0];
+          const dx = t.clientX - leftStart.x;
+          const dy = t.clientY - leftStart.y;
+          const mag = Math.min(1.0, Math.hypot(dx, dy) / 60);
+          const angle = Math.atan2(dy, dx);
+          leftVec.x = Math.cos(angle) * mag; // strafe
+          leftVec.y = Math.sin(angle) * mag; // forward/back as magnitude
+          knobLeft.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+        });
+        joystickLeft.addEventListener('touchend', () => {
+          leftTouchActive = false;
+          leftVec.x = 0;
+          leftVec.y = 0;
+          knobLeft.style.transform = `translate3d(0px,0px,0)`;
+        });
+
+        // Touch events for right joystick (look)
+        joystickRight.addEventListener('touchstart', (e) => {
+          rightTouchActive = true;
+          const t = e.touches[0];
+          rightStart.x = t.clientX;
+          rightStart.y = t.clientY;
+        });
+        joystickRight.addEventListener('touchmove', (e) => {
+          if (!rightTouchActive) return;
+          const t = e.touches[0];
+          const dx = t.clientX - rightStart.x;
+          const dy = t.clientY - rightStart.y;
+          rightVec.x = dx;
+          rightVec.y = dy;
+          knobRight.style.transform = `translate3d(${dx}px, ${dy}px, 0)`;
+        });
+        joystickRight.addEventListener('touchend', () => {
+          rightTouchActive = false;
+          rightVec.x = 0;
+          rightVec.y = 0;
+          knobRight.style.transform = `translate3d(0px,0px,0)`;
+        });
+
+        // Fire button
+        fireBtn.addEventListener('touchstart', shoot);
+      }
+
+      // Resize
+      window.addEventListener('resize', onWindowResize, false);
+      onWindowResize();
+
+      // Start
+      playBtn.addEventListener('click', () => {
+        isRunning = true;
+        panel.style.opacity = '0.98';
+      });
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // Shooting
+    function shoot() {
+      // If mobile with no pointer lock, still allow shooting
+      // Origin and direction
+      const origin = new THREE.Vector3();
+      camera.getWorldPosition(origin);
+      const direction = new THREE.Vector3();
+      camera.getWorldDirection(direction);
+
+      raycaster.set(origin, direction);
+      const intersects = raycaster.intersectObjects(enemies.children, true);
+
+      if (intersects.length > 0) {
+        const hit = intersects[0].object;
+        if (hit.parent && hit.parent === enemies) {
+          enemies.remove(hit);
+        } else if (hit.parent && hit.parent.parent === enemies) {
+          enemies.remove(hit.parent);
+        } else {
+          hit.visible = false;
+        }
+        score += 1;
+        scoreEl.textContent = String(score);
+        if (enemies.children.length < 12) {
+          const m = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({ color: 0xff4444 }));
+          m.position.set((Math.random() - 0.5) * 40, 0.5, (Math.random() - 0.5) * 40);
+          m.userData.isEnemy = true;
+          enemies.add(m);
+        }
+      }
+    }
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+      const time = performance.now();
+      const delta = Math.min(0.05, (time - prevTime) / 1000);
+      prevTime = time;
+
+      velocity.set(0, 0, 0);
+
+      if (isDesktop) {
+        // Keyboard movement for desktop
+        if (moveForward) velocity.z -= 1;
+        if (moveBackward) velocity.z += 1;
+        if (moveLeft) velocity.x -= 1;
+        if (moveRight) velocity.x += 1;
+      } else {
+        // Mobile: left joystick controls
+        velocity.x = leftVec.x;
+        velocity.z = -leftVec.y;
+      }
+
+      if (velocity.length() > 0) velocity.normalize();
+
+      // Move speed
+      const moveSpeed = 6.0;
+      direction.copy(velocity).multiplyScalar(moveSpeed * delta);
+
+      // Rotation
+      if (isMobile) {
+        // Right joystick controls looking
+        yawObject.rotation.y += (rightVec.x || 0) * 0.003;
+        camera.rotation.x += -(rightVec.y || 0) * 0.003;
+        camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+      }
+
+      // Apply movement with yaw
+      const yaw = yawObject.rotation.y;
+      const dx = direction.x * Math.cos(yaw) - direction.z * Math.sin(yaw);
+      const dz = direction.z * Math.cos(yaw) + direction.x * Math.sin(yaw);
+
+      yawObject.position.x += dx;
+      yawObject.position.z += dz;
+
+      enemies.children.forEach(e => {
+        e.rotation.y += 0.01;
+      });
+
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
